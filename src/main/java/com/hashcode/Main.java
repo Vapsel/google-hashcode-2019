@@ -1,5 +1,6 @@
 package com.hashcode;
 
+import com.hashcode.models.Config;
 import com.hashcode.models.Photo;
 
 import java.io.IOException;
@@ -14,6 +15,7 @@ import java.util.stream.Collectors;
 
 public class Main {
 
+    static Config config = new Config();
     static HashMap<String, List<Integer>> tagToPhotoIds = new HashMap<>();
     static Map<String, List<Photo>> positionToPhotoIds = new HashMap<>();
     static Set<Integer> usedPhotoIds = new HashSet<>();
@@ -34,27 +36,33 @@ public class Main {
                 .collect(Collectors.toList());
 
 
-        List<List<Photo>> sliderToPhotosIds = compute(photos);
-
         String outputFile = args[1];
+//        List<List<Photo>> sliderToPhotosIds = processHorizontal(photos, outputFile);
+        List<List<Photo>> sliderToPhotosIds = processVertical(photos, outputFile);
+
         new FileWriter().writeToFile(outputFile, sliderToPhotosIds);
     }
 
-    public static List<List<Photo>> compute(List<Photo> photos){
+    public static List<List<Photo>> processHorizontal(List<Photo> photos, String outputFile) throws IOException {
         List<List<Photo>> slideToPhotoIds = new ArrayList<>();
 
 
+        HashSet<Photo> horizontalSet = new HashSet<>(positionToPhotoIds.get("H"));
+        System.out.println("H table size " + horizontalSet.size());
+
+
         // first photo
-        Photo processedPhoto = positionToPhotoIds.get("H").get(0);
+        Photo processedPhoto = positionToPhotoIds.get("H").get(8);
         slideToPhotoIds.add(List.of(processedPhoto));
+        usedPhotoIds.add(processedPhoto.id);
+        horizontalSet.remove(processedPhoto);
 
-        System.out.println("H table size " + positionToPhotoIds.get("H").size());
 
-        while(true) {
+        while (true) {
 
             int andrzejFunctionResult = Integer.MAX_VALUE;
             Photo minResult = null;
-            for (Photo testedPhoto : positionToPhotoIds.get("H")) {
+            for (Photo testedPhoto : horizontalSet) {
                 if (usedPhotoIds.contains(testedPhoto.id)) {
                     continue;
                 }
@@ -65,42 +73,75 @@ public class Main {
                 }
             }
 
-            if (andrzejFunctionResult == Integer.MAX_VALUE || andrzejFunctionResult == 0) {
+            if (andrzejFunctionResult == Integer.MAX_VALUE) {
                 break;
             }
 
             slideToPhotoIds.add(List.of(minResult));
             usedPhotoIds.add(minResult.id);
             processedPhoto = minResult;
+            horizontalSet.remove(minResult);
 
             if (usedPhotoIds.size() % 100 == 0) {
                 System.out.println("Used collection size " + usedPhotoIds.size());
             }
+
+            if (usedPhotoIds.size() % 1000 == 0) {
+                System.out.println("Used collection size " + usedPhotoIds.size());
+                new FileWriter().writeToFile(outputFile, slideToPhotoIds);
+            }
         }
         return slideToPhotoIds;
+    }
 
-//                .stream()
-//                .filter(testedPhoto -> {
-//                    if (usedPhotoIds.contains(testedPhoto.id)){
-//                        return false;
-//                    }
+    public static List<List<Photo>> processVertical(List<Photo> photos, String outputFile) throws IOException {
+        HashSet<Photo> verticalSet = new HashSet<>(positionToPhotoIds.get("V"));
+        System.out.println("V table size " + verticalSet.size());
+        List<Photo> get = positionToPhotoIds.get("V");
+        List<List<Photo>> slideToPhotoIds = new ArrayList<>();
 
+        List<Photo> processedSlide = List.of(get.get(0), get.get(1));
 
-//                    int factor = interestFactor(processedPhoto, testedPhoto);
-//                    int halfOfTagCount = processedPhoto.tagCount / 2;
-//                    return factor - 1 >= halfOfTagCount && factor + 1 <= halfOfTagCount;
-//                })
-//                .findAny();
+        while (true) {
 
-
-//        if (found.isPresent()){
-//            slideToPhotoIds.add(List.of(found.get()));
-//            usedPhotoIds.add(found.get().id);
-//        } else {
-//
-//        }
+            int andrzejFunctionResult = Integer.MAX_VALUE;
+            List<Photo> minResult = null;
 
 
+            for (int i = 2; i < get.size(); i = i + 2) {
+                Photo testedPhoto = get.get(i);
+                Photo testedPhoto2 = get.get(i + 1);
+                if (usedPhotoIds.contains(testedPhoto.id)) {
+                    continue;
+                }
+                List<Photo> testedSlide = List.of(testedPhoto, testedPhoto2);
+                int tmpResult = andrzejfunction(processedSlide, testedSlide);
+                if (tmpResult < andrzejFunctionResult) {
+                    andrzejFunctionResult = tmpResult;
+                    minResult = testedSlide;
+                }
+            }
+
+
+            if (andrzejFunctionResult == Integer.MAX_VALUE) {
+                break;
+            }
+
+            slideToPhotoIds.add(minResult);
+            usedPhotoIds.add(minResult.get(0).id);
+            usedPhotoIds.add(minResult.get(1).id);
+            processedSlide = minResult;
+
+            if (usedPhotoIds.size() % 100 == 0) {
+                System.out.println("Used collection size " + usedPhotoIds.size());
+            }
+
+            if (usedPhotoIds.size() % 1000 == 0) {
+                System.out.println("Used collection size " + usedPhotoIds.size());
+                new FileWriter().writeToFile(outputFile, slideToPhotoIds);
+            }
+        }
+        return slideToPhotoIds;
     }
 
 

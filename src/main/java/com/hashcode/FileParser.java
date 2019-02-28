@@ -26,6 +26,7 @@ public class FileParser {
 //        String[] line = readLine.split(" ");
         Config config = new Config();
         config.NUMBER_OF_PHOTOS = Integer.valueOf(readLine);
+        Main.config = config;
 
 
 
