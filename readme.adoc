@@ -11,4 +11,5 @@ https://github.com/Vapsel/google-hashcode-2019/blob/master/src/main/resources/st
 
 1. Java is very slow and complicated. Python is better solution for data analytics and algorithm problems.
 1. For sure, input/output data visualization helps make decisions and improvements.
+1. Get inspiration from http://flothesof.github.io/preparing-hashcode-2018.html[Frolian's blog]
 
