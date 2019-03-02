@@ -4,6 +4,8 @@ import com.hashcode.models.Config;
 import com.hashcode.models.Photo;
 
 import java.io.IOException;
+import java.io.PrintWriter;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -18,17 +20,14 @@ import java.util.stream.Collectors;
 public class Main {
 
     static FileWriter fileWriter;
+    static int lastStoredSlideIndex = 0;
 
     static Config config = new Config();
     // result
     static List<List<Photo>> slideToPhotoIds = new ArrayList<>();
 
-
-
     static HashMap<String, List<Integer>> tagToPhotoIds = new HashMap<>();
     static Map<String, List<Photo>> positionToPhotoIds = new HashMap<>();
-    static Set<Integer> usedPhotoIds = new HashSet<>();
-
     static {
         positionToPhotoIds.put("H", new ArrayList<>());
         positionToPhotoIds.put("V", new ArrayList<>());
@@ -37,6 +36,10 @@ public class Main {
     static Instant start;
     static Instant lastLog;
 
+    /**
+     * 1 argument: input data file e.g. b_lovely_landscapes.txt
+     * 2 argument: output data file without extension e.g. stream/b
+     */
     public static void main(String[] args) throws IOException {
         start = Instant.now();
         lastLog = Instant.now();
@@ -50,122 +53,109 @@ public class Main {
         String outputFile = args[1];
         fileWriter = new FileWriter(outputFile);
 
-        // sort V
-        List<Photo> sortedPhotos = positionToPhotoIds.get("V").stream()
-                .sorted(Comparator.comparing(p -> p.tagCount))
-                .collect(Collectors.toList());
+        // Test histogram by tag count
+        histogramVisualisationFile(photos, outputFile);
 
-
-        processHorizontal();
-//        List<List<Photo>> sliderToPhotosIds = processVertical(photos, outputFile);
+        if (!positionToPhotoIds.get("H").isEmpty()) {
+            processHorizontal();
+        }
+        if (!positionToPhotoIds.get("V").isEmpty()) {
+            processVertical();
+        }
 
         fileWriter.closeStreams();
     }
 
-    public static List<List<Photo>> processHorizontal() {
-
-//        List<Photo> horizontalSet = positionToPhotoIds.get("H").stream()
-//                .sorted((p1, p2) -> p2.tagCount.compareTo(p1.tagCount))
-//                .collect(Collectors.toList());
-        HashSet<Photo> horizontalSet = new HashSet<>(positionToPhotoIds.get("H"));
+    public static void processHorizontal() {
+        List<Photo> horizontalSet = new ArrayList<>(positionToPhotoIds.get("H"));
         System.out.println("H table size " + horizontalSet.size());
 
-        // Test histogram by tag count
-//        TreeSet<Photo> justForTest = new TreeSet<>((p1, p2) -> p2.tagCount.compareTo(p1.tagCount));
-//        justForTest.addAll(horizontalSet);
-
         // first photo
-        Photo processedPhoto = positionToPhotoIds.get("H").get(0);
+        int firstPhotoIndex = 0;
+        // start with photo that has more tags
+        Photo processedPhoto = horizontalSet.get(firstPhotoIndex);
         slideToPhotoIds.add(List.of(processedPhoto));
-        usedPhotoIds.add(processedPhoto.id);
-        horizontalSet.remove(processedPhoto);
+        horizontalSet.remove(firstPhotoIndex);
 
-
-        int lastStoredPhotoIndex = 0;
         while (true) {
 
-            int andrzejFunctionResult = Integer.MAX_VALUE;
+            int minSlidesDifference = Integer.MAX_VALUE;
             Photo minResult = null;
-            int percent30 = horizontalSet.size() / 3;
-            for (Photo testedPhoto : horizontalSet) {
-                if (usedPhotoIds.contains(testedPhoto.id)) {
-                    continue;
-                }
+            int minResultIndex = 0;
+
+            for (int i = 0; i < horizontalSet.size(); i++) {
+                Photo testedPhoto = horizontalSet.get(i);
                 int tmpResult = slidesDifference(List.of(processedPhoto), List.of(testedPhoto));
-                if (tmpResult < andrzejFunctionResult) {
-                    andrzejFunctionResult = tmpResult;
+                if (tmpResult < minSlidesDifference) {
+                    minSlidesDifference = tmpResult;
                     minResult = testedPhoto;
+                    minResultIndex = i;
                 }
             }
 
-            if (andrzejFunctionResult == Integer.MAX_VALUE) {
+            if (minSlidesDifference == Integer.MAX_VALUE) {
+                // store last piece of results
+                fileWriter.appendToFile(slideToPhotoIds, lastStoredSlideIndex, Integer.MAX_VALUE);
                 break;
             }
 
             slideToPhotoIds.add(List.of(minResult));
-            usedPhotoIds.add(minResult.id);
             processedPhoto = minResult;
-            horizontalSet.remove(minResult);
+            horizontalSet.remove(minResultIndex);
 
-            lastStoredPhotoIndex = continuousStoreAndLog(lastStoredPhotoIndex);
+            lastStoredSlideIndex = continuousStoreAndLog(lastStoredSlideIndex);
         }
-        return slideToPhotoIds;
     }
 
-    public static List<List<Photo>> processVertical(List<Photo> photos, String outputFile) throws IOException {
-        HashSet<Photo> verticalSet = new HashSet<>(positionToPhotoIds.get("V"));
+    public static void processVertical() {
+        List<Photo> verticalSet = new ArrayList<>(positionToPhotoIds.get("V"));
         System.out.println("V table size " + verticalSet.size());
-        List<Photo> get = positionToPhotoIds.get("V");
-        List<List<Photo>> slideToPhotoIds = new ArrayList<>();
 
-        List<Photo> processedSlide = List.of(get.get(0), get.get(1));
+        // first photo
+        int firstSlidePhoto1Index = 0, firstSlidePhoto2Index = 1;
+        List<Photo> processedSlide = List.of(verticalSet.get(firstSlidePhoto1Index), verticalSet.get(firstSlidePhoto2Index));
+        slideToPhotoIds.add(processedSlide);
+        verticalSet.remove(firstSlidePhoto2Index);
+        verticalSet.remove(firstSlidePhoto1Index);
 
         while (true) {
 
-            int andrzejFunctionResult = Integer.MAX_VALUE;
+            int minSlidesDifference = Integer.MAX_VALUE;
             List<Photo> minResult = null;
+            int minResultIndex = 0;
 
-
-            for (int i = 2; i < get.size(); i = i + 2) {
-                Photo testedPhoto = get.get(i);
-                Photo testedPhoto2 = get.get(i + 1);
-                if (usedPhotoIds.contains(testedPhoto.id)) {
-                    continue;
-                }
-                List<Photo> testedSlide = List.of(testedPhoto, testedPhoto2);
+            for (int i = 0; i < verticalSet.size(); i = i + 2) {
+                Photo testedPhoto1 = verticalSet.get(i);
+                Photo testedPhoto2 = verticalSet.get(i + 1);
+                List<Photo> testedSlide = List.of(testedPhoto1, testedPhoto2);
                 int tmpResult = slidesDifference(processedSlide, testedSlide);
-                if (tmpResult < andrzejFunctionResult) {
-                    andrzejFunctionResult = tmpResult;
+                if (tmpResult < minSlidesDifference) {
+                    minSlidesDifference = tmpResult;
                     minResult = testedSlide;
+                    minResultIndex = i;
                 }
             }
 
-
-            if (andrzejFunctionResult == Integer.MAX_VALUE) {
+            if (minSlidesDifference == Integer.MAX_VALUE) {
+                // store last piece of results
+                fileWriter.appendToFile(slideToPhotoIds, lastStoredSlideIndex, Integer.MAX_VALUE);
                 break;
             }
 
+
             slideToPhotoIds.add(minResult);
-            usedPhotoIds.add(minResult.get(0).id);
-            usedPhotoIds.add(minResult.get(1).id);
             processedSlide = minResult;
+            verticalSet.remove(minResultIndex + 1);
+            verticalSet.remove(minResultIndex);
 
-            if (usedPhotoIds.size() % 100 == 0) {
-                System.out.println("Used collection size " + usedPhotoIds.size());
-            }
-
-            if (usedPhotoIds.size() % 1000 == 0) {
-                System.out.println("Used collection size " + usedPhotoIds.size());
-//                new FileWriter().appendToFile(outputFile, slideToPhotoIds);
-            }
+            lastStoredSlideIndex = continuousStoreAndLog(lastStoredSlideIndex);
         }
-        return slideToPhotoIds;
     }
 
-    private static int continuousStoreAndLog(int lastStoredPhotoIndex) {
+    private static int continuousStoreAndLog(int lastStoredSlideIndex) {
         int storePeriod = 100;
-        if (usedPhotoIds.size() % storePeriod == 0) {
-            System.out.println("Used collection size " + usedPhotoIds.size());
+        if (slideToPhotoIds.size() % storePeriod == 0) {
+            System.out.println("Ready slides count: " + slideToPhotoIds.size());
             Instant now = Instant.now();
             String timeFromStart = Duration.between(start, now).toString();
             String timeFromLastLog = Duration.between(lastLog, now).toString();
@@ -173,10 +163,10 @@ public class Main {
             System.out.println("[Timer] Elapsed from start: " + timeFromStart + "   \t \t Elapsed from last log: " + timeFromLastLog);
             lastLog = now;
 
-            fileWriter.appendToFile(slideToPhotoIds, lastStoredPhotoIndex, lastStoredPhotoIndex + storePeriod - 1);
-            lastStoredPhotoIndex += storePeriod;
+            fileWriter.appendToFile(slideToPhotoIds, lastStoredSlideIndex, lastStoredSlideIndex + storePeriod - 1);
+            lastStoredSlideIndex += storePeriod;
         }
-        return lastStoredPhotoIndex;
+        return lastStoredSlideIndex;
     }
 
 
@@ -219,5 +209,21 @@ public class Main {
         return Math.min(intersection.size(),
                 Math.min(photo1.tagCount - intersection.size(),
                         photo2.tagCount - intersection.size()));
+    }
+
+    private static void histogramVisualisationFile(List<Photo> photos, String outputFile) throws IOException {
+        List<String> csvLines = new ArrayList<>();
+        csvLines.add("Tag count, Number of photos");
+
+        photos.stream()
+                .collect(Collectors.groupingBy(photo -> photo.tagCount))
+                .entrySet().stream()
+                    .sorted(Comparator.comparing(Map.Entry::getKey))
+                    .map(entry -> entry.getKey() + ", " + entry.getValue().size())
+                    .forEachOrdered(csvLines::add);
+
+        PrintWriter csvFileWriter = new PrintWriter(outputFile + "_histogram.csv", StandardCharsets.UTF_8);
+        csvLines.forEach(csvFileWriter::println);
+        csvFileWriter.close();
     }
 }

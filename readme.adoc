@@ -1,0 +1,10 @@
+= Google Hashcode 2019 - Photo Slideshow
+Vadym Perepeliak <vapsel@gmail.com>
+:toc:
+:toclevels: 4
+
+== Decisions for next year
+
+1. Java is very slow and complicated. Python is better solution for data analytics and algorithm problems.
+1. For sure, input/output data visualization helps make decisions and improvements.
+
