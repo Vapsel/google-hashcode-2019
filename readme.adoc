@@ -3,6 +3,10 @@ Vadym Perepeliak <vapsel@gmail.com>
 :toc:
 :toclevels: 4
 
+== Example of histogram
+https://github.com/Vapsel/google-hashcode-2019/blob/master/src/main/resources/stream/b_out_histogram.svg[Histogram for tag count in "b_lovely_landscapes" dataset]
+
+
 == Decisions for next year
 
 1. Java is very slow and complicated. Python is better solution for data analytics and algorithm problems.
