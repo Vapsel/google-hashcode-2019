@@ -12,7 +12,7 @@ import java.util.Arrays;
 import java.util.List;
 
 import static com.hashcode.Main.positionToPhotoIds;
-import static com.hashcode.Main.tagToPhotoIds;
+import static com.hashcode.Main.tagToPhotos;
 
 public class FileParser {
 
@@ -43,14 +43,13 @@ public class FileParser {
             Photo photo = new Photo(photoId, tagCount, position);
             photo.tags.addAll(tagsList);
 
-            Integer finalPhotoId = photoId;
             for (String tag : tagsList) {
-                if (tagToPhotoIds.containsKey(tag)) {
-                    tagToPhotoIds.get(tag).add(finalPhotoId);
+                if (tagToPhotos.containsKey(tag)) {
+                    tagToPhotos.get(tag).add(photo);
                 } else {
-                    ArrayList<Integer> photoIds = new ArrayList<>();
-                    photoIds.add(photoId);
-                    tagToPhotoIds.put(tag, photoIds);
+                    ArrayList<Photo> photoIds = new ArrayList<>();
+                    photoIds.add(photo);
+                    tagToPhotos.put(tag, photoIds);
                 }
             }
 

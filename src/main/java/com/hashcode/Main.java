@@ -2,6 +2,7 @@ package com.hashcode;
 
 import com.hashcode.models.Config;
 import com.hashcode.models.Photo;
+import com.hashcode.models.RankingBucket;
 
 import java.io.IOException;
 import java.io.PrintWriter;
@@ -14,6 +15,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -26,12 +28,14 @@ public class Main {
     // result
     static List<List<Photo>> slideToPhotoIds = new ArrayList<>();
 
-    static HashMap<String, List<Integer>> tagToPhotoIds = new HashMap<>();
+    static HashMap<String, List<Photo>> tagToPhotos = new HashMap<>();
     static Map<String, List<Photo>> positionToPhotoIds = new HashMap<>();
     static {
         positionToPhotoIds.put("H", new ArrayList<>());
         positionToPhotoIds.put("V", new ArrayList<>());
     }
+    static Set<Integer> usedPhotoIds = new HashSet<>();
+    static Map<Photo, List<RankingBucket>> photoToRankingBuckets = new HashMap<>();
 
     static Instant start;
     static Instant lastLog;
@@ -57,12 +61,13 @@ public class Main {
         histogramVisualisationFile(photos, outputFile);
 
         if (!positionToPhotoIds.get("H").isEmpty()) {
-            processHorizontal();
+            processAll_anotherAlgorithm();
         }
         if (!positionToPhotoIds.get("V").isEmpty()) {
             processVertical();
         }
 
+        fileWriter.appendToFile(slideToPhotoIds, lastStoredSlideIndex, Integer.MAX_VALUE);
         fileWriter.closeStreams();
     }
 
@@ -105,6 +110,108 @@ public class Main {
 
             lastStoredSlideIndex = continuousStoreAndLog(lastStoredSlideIndex);
         }
+    }
+
+    public static void processAll_anotherAlgorithm() {
+        // We could start with max
+        int maxInteresetFactor = 0;
+        Photo maxInterstedPhoto = null;
+
+        // key tag is at least one common tag
+        for (Map.Entry<String, List<Photo>> tagEntry : tagToPhotos.entrySet()) {
+
+            for (Photo keyPhoto : tagEntry.getValue()) {
+                if (!photoToRankingBuckets.containsKey(keyPhoto)) {
+                    photoToRankingBuckets.put(keyPhoto,
+                            // descending order
+                            new ArrayList<>());
+                }
+                List<RankingBucket> keyBuckets = photoToRankingBuckets.get(keyPhoto);
+
+                for (Photo bucketPhoto : tagEntry.getValue()) {
+                    if (keyPhoto == bucketPhoto) {
+                        continue;
+                    }
+                    int interestFactor = interestFactor(keyPhoto, bucketPhoto);
+                    RankingBucket rankingBucket = new RankingBucket(interestFactor, bucketPhoto);
+                    keyBuckets.add(rankingBucket);
+
+                    if (interestFactor > maxInteresetFactor) {
+                        maxInteresetFactor = interestFactor;
+                        maxInterstedPhoto = keyPhoto;
+                    }
+                }
+            }
+        }
+        // sort ranking buckets
+        photoToRankingBuckets.forEach((key, value) -> value.sort((b1, b2) -> b2.interestFactor.compareTo(b1.interestFactor)));
+
+        // pick linked photos
+        Photo processedPhoto = maxInterstedPhoto;
+        slideToPhotoIds.add(List.of(processedPhoto));
+        while (true) {
+            usedPhotoIds.add(processedPhoto.id);
+
+            List<RankingBucket> rankingBuckets = photoToRankingBuckets.get(processedPhoto);
+            if (rankingBuckets == null) {
+                // optimize: remove empty
+                photoToRankingBuckets.entrySet().removeIf(buckets -> buckets.getValue().isEmpty());
+                photoToRankingBuckets.forEach((key, value) -> value
+                        .removeIf(bucket -> usedPhotoIds.contains(bucket.photo.id)));
+
+                Optional<Map.Entry<Photo, List<RankingBucket>>> randomEntry = photoToRankingBuckets.entrySet().stream()
+                        .filter(entry -> !entry.getValue().isEmpty())
+                        .findAny();
+                if (randomEntry.isPresent()) {
+                    rankingBuckets = randomEntry.get().getValue();
+                    processedPhoto = randomEntry.get().getKey();
+                } else {
+                    break;
+                }
+            }
+            processedPhoto = retrieveNextPhoto(processedPhoto, rankingBuckets);
+            if (processedPhoto == null) {
+                break;
+            }
+            slideToPhotoIds.add(List.of(processedPhoto));
+
+            lastStoredSlideIndex = continuousStoreAndLog(lastStoredSlideIndex);
+        }
+        System.out.println("test");
+    }
+
+    public static Photo retrieveNextPhoto(Photo processedPhoto, List<RankingBucket> rankingBuckets){
+        if (!rankingBuckets.isEmpty()) {
+            return getPhoto(processedPhoto, rankingBuckets);
+        } else {
+            photoToRankingBuckets.remove(processedPhoto);
+            // random not empty entry
+            Optional<Map.Entry<Photo, List<RankingBucket>>> randomEntry = photoToRankingBuckets.entrySet().stream()
+                    .filter(entry -> !entry.getValue().isEmpty())
+                    .findAny();
+            if (randomEntry.isPresent()) {
+                List<RankingBucket> randomRankingBuckets = randomEntry.get().getValue();
+                return getPhoto(randomEntry.get().getKey(), randomRankingBuckets);
+            } else {
+                return null;
+            }
+        }
+    }
+
+    private static Photo getPhoto(Photo processedPhoto, List<RankingBucket> rankingBuckets) {
+        RankingBucket firstBucket = rankingBuckets.get(0);
+        if (usedPhotoIds.contains(firstBucket.photo.id)){
+            rankingBuckets.remove(0);
+            if (rankingBuckets.isEmpty()){
+                photoToRankingBuckets.remove(processedPhoto);
+            }
+            return retrieveNextPhoto(processedPhoto, rankingBuckets);
+        }
+        rankingBuckets.remove(0);
+        if (rankingBuckets.isEmpty()){
+            photoToRankingBuckets.remove(processedPhoto);
+        }
+        return firstBucket.photo;
     }
 
     public static void processVertical() {
