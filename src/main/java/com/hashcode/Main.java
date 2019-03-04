@@ -60,12 +60,7 @@ public class Main {
         // Test histogram by tag count
         histogramVisualisationFile(photos, outputFile);
 
-        if (!positionToPhotoIds.get("H").isEmpty()) {
-            processAll_anotherAlgorithm();
-        }
-        if (!positionToPhotoIds.get("V").isEmpty()) {
-            processVertical();
-        }
+        processAll_anotherAlgorithm();
 
         fileWriter.appendToFile(slideToPhotoIds, lastStoredSlideIndex, Integer.MAX_VALUE);
         fileWriter.closeStreams();
@@ -122,14 +117,16 @@ public class Main {
 
             for (Photo keyPhoto : tagEntry.getValue()) {
                 if (!photoToRankingBuckets.containsKey(keyPhoto)) {
-                    photoToRankingBuckets.put(keyPhoto,
-                            // descending order
-                            new ArrayList<>());
+                    photoToRankingBuckets.put(keyPhoto, new ArrayList<>());
                 }
                 List<RankingBucket> keyBuckets = photoToRankingBuckets.get(keyPhoto);
 
                 for (Photo bucketPhoto : tagEntry.getValue()) {
                     if (keyPhoto == bucketPhoto) {
+                        continue;
+                    }
+                    if (keyBuckets.stream().anyMatch(bucket -> bucket.photo.id == bucketPhoto.id)){
+                        // duplicated ranking buckets
                         continue;
                     }
                     int interestFactor = interestFactor(keyPhoto, bucketPhoto);
@@ -142,75 +139,110 @@ public class Main {
                     }
                 }
             }
+            System.out.println("Prepare " + photoToRankingBuckets.size() + " photo rankings from " + config.NUMBER_OF_PHOTOS);
         }
         // sort ranking buckets
-        photoToRankingBuckets.forEach((key, value) -> value.sort((b1, b2) -> b2.interestFactor.compareTo(b1.interestFactor)));
+        photoToRankingBuckets.entrySet().parallelStream()
+                // descending. Most relevant first
+                .forEach(entry -> entry.getValue().sort((b1, b2) -> b2.interestFactor.compareTo(b1.interestFactor)));
 
         // pick linked photos
         Photo processedPhoto = maxInterstedPhoto;
-        slideToPhotoIds.add(List.of(processedPhoto));
+        // to be able start with V
+        boolean firstPhotoV = processedPhoto.position.equals("V");
+        if (!firstPhotoV) {
+            slideToPhotoIds.add(List.of(processedPhoto));
+        }
         while (true) {
             usedPhotoIds.add(processedPhoto.id);
 
             List<RankingBucket> rankingBuckets = photoToRankingBuckets.get(processedPhoto);
-            if (rankingBuckets == null) {
-                // optimize: remove empty
-                photoToRankingBuckets.entrySet().removeIf(buckets -> buckets.getValue().isEmpty());
-                photoToRankingBuckets.forEach((key, value) -> value
-                        .removeIf(bucket -> usedPhotoIds.contains(bucket.photo.id)));
-
-                Optional<Map.Entry<Photo, List<RankingBucket>>> randomEntry = photoToRankingBuckets.entrySet().stream()
-                        .filter(entry -> !entry.getValue().isEmpty())
-                        .findAny();
-                if (randomEntry.isPresent()) {
-                    rankingBuckets = randomEntry.get().getValue();
-                    processedPhoto = randomEntry.get().getKey();
-                } else {
-                    break;
-                }
-            }
-            processedPhoto = retrieveNextPhoto(processedPhoto, rankingBuckets);
+            processedPhoto = retrieveNextPhoto(processedPhoto, rankingBuckets, firstPhotoV, new ArrayList<>());
             if (processedPhoto == null) {
                 break;
             }
-            slideToPhotoIds.add(List.of(processedPhoto));
+            if (firstPhotoV){
+                slideToPhotoIds.add(List.of(processedPhoto, maxInterstedPhoto));
+                usedPhotoIds.add(maxInterstedPhoto.id);
+                photoToRankingBuckets.remove(maxInterstedPhoto);
+                firstPhotoV = false;
+                continue;
+            }
+            // process vertical
+            if (processedPhoto.position.equals("V")){
+                rankingBuckets = photoToRankingBuckets.get(processedPhoto);
+                // match first V photo to another V photo (without previous slide context)
+                Photo matchedPhoto = retrieveNextPhoto(processedPhoto, rankingBuckets, true, new ArrayList<>());
+                slideToPhotoIds.add(List.of(processedPhoto, matchedPhoto));
+                usedPhotoIds.add(processedPhoto.id);
+                photoToRankingBuckets.remove(processedPhoto);
+                processedPhoto = matchedPhoto;
+            } else {
+                slideToPhotoIds.add(List.of(processedPhoto));
+            }
 
             lastStoredSlideIndex = continuousStoreAndLog(lastStoredSlideIndex);
         }
-        System.out.println("test");
+        System.out.println("Computing completed");
     }
 
-    public static Photo retrieveNextPhoto(Photo processedPhoto, List<RankingBucket> rankingBuckets){
+    public static Photo retrieveNextPhoto(Photo processedPhoto, List<RankingBucket> rankingBuckets,
+                                          boolean onlyVertical, List<Integer> checkedPhotoIds){
         if (!rankingBuckets.isEmpty()) {
-            return getPhoto(processedPhoto, rankingBuckets);
+            return getPhoto(processedPhoto, rankingBuckets, onlyVertical, checkedPhotoIds);
         } else {
-            photoToRankingBuckets.remove(processedPhoto);
-            // random not empty entry
+            // optimize: remove empty
+            photoToRankingBuckets.forEach((key, value) -> value
+                    .removeIf(bucket -> usedPhotoIds.contains(bucket.photo.id)));
+
+            // random entry
             Optional<Map.Entry<Photo, List<RankingBucket>>> randomEntry = photoToRankingBuckets.entrySet().stream()
-                    .filter(entry -> !entry.getValue().isEmpty())
+                    .filter(entry -> !onlyVertical || entry.getKey().position.equals("V"))
+                    .filter(entry -> entry.getKey().id != processedPhoto.id)
                     .findAny();
             if (randomEntry.isPresent()) {
-                List<RankingBucket> randomRankingBuckets = randomEntry.get().getValue();
-                return getPhoto(randomEntry.get().getKey(), randomRankingBuckets);
+                photoToRankingBuckets.remove(processedPhoto);
+                return randomEntry.get().getKey();
             } else {
                 return null;
             }
         }
     }
 
-    private static Photo getPhoto(Photo processedPhoto, List<RankingBucket> rankingBuckets) {
+    /**
+     * @param onlyVertical In case false, H or V photo would be returned. In case of true, only V photo would be returned.
+     */
+    private static Photo getPhoto(Photo processedPhoto, List<RankingBucket> rankingBuckets,
+                                  boolean onlyVertical, List<Integer> checkedPhotoIds) {
         RankingBucket firstBucket = rankingBuckets.get(0);
         if (usedPhotoIds.contains(firstBucket.photo.id)){
-            rankingBuckets.remove(0);
-            if (rankingBuckets.isEmpty()){
-                photoToRankingBuckets.remove(processedPhoto);
+            rankingBuckets.removeIf(bucket -> usedPhotoIds.contains(bucket.photo.id));
+            return retrieveNextPhoto(processedPhoto, rankingBuckets, onlyVertical, checkedPhotoIds);
+        }
+
+        if (onlyVertical){
+            for (int i = 0; i < rankingBuckets.size(); i++) {
+                RankingBucket testedBucket = rankingBuckets.get(i);
+                if (testedBucket.photo.position.equals("V")
+                        && !usedPhotoIds.contains(testedBucket.photo.id)
+                        && !checkedPhotoIds.contains(testedBucket.photo.id)) {
+                    rankingBuckets.remove(i);
+//
+                    photoToRankingBuckets.remove(processedPhoto);
+                    return testedBucket.photo;
+                }
             }
-            return retrieveNextPhoto(processedPhoto, rankingBuckets);
+            // if no vertical photo, then look for random one
+            checkedPhotoIds.add(processedPhoto.id);
+            Optional<Map.Entry<Photo, List<RankingBucket>>> randomEntry = photoToRankingBuckets.entrySet().stream()
+                    .filter(entry -> entry.getKey().position.equals("V") && !checkedPhotoIds.contains(entry.getKey().id))
+                    .findAny();
+            // It always must exist as V photos are in pairs
+            return randomEntry.get().getKey();
         }
+
         rankingBuckets.remove(0);
-        if (rankingBuckets.isEmpty()){
-            photoToRankingBuckets.remove(processedPhoto);
-        }
+        photoToRankingBuckets.remove(processedPhoto);
         return firstBucket.photo;
     }
 
